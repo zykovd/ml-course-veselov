@@ -7,6 +7,10 @@ import numpy as np
 from sklearn.metrics import r2_score
 from enum import Enum, unique
 
+from utils.logger import create_logger
+
+logger = create_logger(name="lab1", logging_mode='DEBUG')
+
 
 @unique
 class ModeEnum(Enum):
@@ -48,15 +52,15 @@ class LinearRegression:
             if num_features == 1:
                 return np.hstack([x, np.ones([x.shape[0], 1])])
             else:
-                # todo add warning
+                logger.warning("Adding num_features more than {}!".format(num_features))
                 return np.hstack([x ** deg for deg in range(num_features, -1, -1)])
 
     @staticmethod
     def standardize(train_data: np.ndarray, test_data: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray]:
-        # print("mean = {}".format(data.mean(axis=0)))
-        # print("std = {}".format(data.std(axis=0)))
         mean = train_data.mean(axis=0)
         std = train_data.std(axis=0)
+        logger.debug("mean = {}".format(mean))
+        logger.debug("std = {}".format(std))
         return ((train_data - mean) / std, (test_data - mean) / std) if test_data is not None \
             else ((train_data - mean) / std, None)
 
@@ -79,8 +83,9 @@ class LinearRegression:
             if progress % 100 == 0:
                 print("\rGradient descent progress: {:.1f}%".format(progress / epochs * 100), end="")
         tf = time.time()
-        print('\rGradient descent took {} s'.format(tf - t0))
-        print('w = {}'.format(w))
+        print("\r")
+        logger.info('Gradient descent took {} s'.format(tf - t0))
+        logger.info('w = {}'.format(w))
 
         if plot_error:
             plt.figure(figsize=(12, 6))
@@ -155,68 +160,84 @@ class LinearRegression:
 
 if __name__ == '__main__':
 
-    # mode = ModeEnum.COMPETITION
-    mode = ModeEnum.BASIC
+    try:
 
-    if mode == ModeEnum.BASIC:
-        data_dir = "task1"
-        output_dir = "output"
-        variant = 3
+        # mode = ModeEnum.COMPETITION
+        mode = ModeEnum.BASIC
+        logger.info("Mode: {}".format(mode.value))
 
-        test_features_filename = "{}/test_features_{:04d}.csv".format(data_dir, variant)
-        test_labels_filename = "{}/lab1.csv".format(output_dir)
-        train_features_filename = "{}/train_features_{:04d}.csv".format(data_dir, variant)
-        train_labels_filename = "{}/train_labels_{:04d}.csv".format(data_dir, variant)
+        if mode == ModeEnum.BASIC:
+            data_dir = "task1"
+            output_dir = "output"
+            variant = 3
 
-        x_train = pd.read_csv(train_features_filename, header=None)
-        y_train = pd.read_csv(train_labels_filename, header=None)
-        x_test = pd.read_csv(test_features_filename, header=None)
+            test_features_filename = "{}/test_features_{:04d}.csv".format(data_dir, variant)
+            test_labels_filename = "{}/lab1.csv".format(output_dir)
+            train_features_filename = "{}/train_features_{:04d}.csv".format(data_dir, variant)
+            train_labels_filename = "{}/train_labels_{:04d}.csv".format(data_dir, variant)
 
-        num_features = 2
-        x_train_np = LinearRegression.add_features(x=x_train[0].to_numpy(), num_features=num_features)
-        x_test_np = LinearRegression.add_features(x=x_test[0].to_numpy(), num_features=num_features)
+            logger.info("test_features_filename = {}".format(test_features_filename))
+            logger.info("test_labels_filename = {}".format(test_labels_filename))
+            logger.info("train_features_filename = {}".format(train_features_filename))
+            logger.info("train_labels_filename = {}".format(train_labels_filename))
 
-        regression = LinearRegression(x=x_train_np, y=y_train[0].to_numpy(), plot_data=False)
+            x_train = pd.read_csv(train_features_filename, header=None)
+            y_train = pd.read_csv(train_labels_filename, header=None)
+            x_test = pd.read_csv(test_features_filename, header=None)
 
-        w = regression.gradient_descent(learning_rate=10e-6, epochs=10000, plot_substeps=True)
+            num_features = 2
+            x_train_np = LinearRegression.add_features(x=x_train[0].to_numpy(), num_features=num_features)
+            x_test_np = LinearRegression.add_features(x=x_test[0].to_numpy(), num_features=num_features)
 
-        y_hat = regression.make_prediction(x=x_train_np, w=w, y=regression.y, plot_prediction=True)
-        print("r2_score = {}".format(r2_score(y_true=regression.y, y_pred=y_hat)))
+            regression = LinearRegression(x=x_train_np, y=y_train[0].to_numpy(), plot_data=False)
 
-        y_hat_test = regression.make_prediction(x=x_test_np, w=w, plot_prediction=False)
-        LinearRegression.plot_scatter(x_train=x_train_np, y_train=regression.y, x_test=x_test_np, y_test=y_hat_test)
-        pd.DataFrame(y_hat_test).to_csv(test_labels_filename, encoding='utf-8', index=False, header=False)
+            w = regression.gradient_descent(learning_rate=10e-6, epochs=10000, plot_substeps=True)
 
-        plt.show()
+            y_hat = regression.make_prediction(x=x_train_np, w=w, y=regression.y, plot_prediction=True)
+            logger.info("r2_score = {}".format(r2_score(y_true=regression.y, y_pred=y_hat)))
 
-    elif mode == ModeEnum.COMPETITION:
-        data_dir = "challenge1"
-        output_dir = "output"
+            y_hat_test = regression.make_prediction(x=x_test_np, w=w, plot_prediction=False)
+            LinearRegression.plot_scatter(x_train=x_train_np, y_train=regression.y, x_test=x_test_np, y_test=y_hat_test)
+            pd.DataFrame(y_hat_test).to_csv(test_labels_filename, encoding='utf-8', index=False, header=False)
 
-        x_train_filename = "{}/challenge1_x_train.csv".format(data_dir)
-        y_train_filename = "{}/challenge1_y_train.csv".format(data_dir)
-        x_test_filename = "{}/challenge1_x_test.csv".format(data_dir)
-        y_test_filename = "{}/lab1_challenge.csv".format(output_dir)
+            plt.show()
 
-        x_train = pd.read_csv(x_train_filename, header=None)
-        y_train = pd.read_csv(y_train_filename, header=None)
-        x_test = pd.read_csv(x_test_filename, header=None)
+        elif mode == ModeEnum.COMPETITION:
+            data_dir = "challenge1"
+            output_dir = "output"
 
-        x_train_std, x_test_std = LinearRegression.standardize(train_data=x_train.to_numpy(),
-                                                               test_data=x_test.to_numpy())
+            x_train_filename = "{}/challenge1_x_train.csv".format(data_dir)
+            y_train_filename = "{}/challenge1_y_train.csv".format(data_dir)
+            x_test_filename = "{}/challenge1_x_test.csv".format(data_dir)
+            y_test_filename = "{}/lab1_challenge.csv".format(output_dir)
 
-        num_features = 1
-        x_train_np = LinearRegression.add_features(x=x_train_std, num_features=num_features)
-        x_test_np = LinearRegression.add_features(x=x_test_std, num_features=num_features)
+            logger.info("x_train_filename = {}".format(x_train_filename))
+            logger.info("y_train_filename = {}".format(y_train_filename))
+            logger.info("x_test_filename = {}".format(x_test_filename))
+            logger.info("y_test_filename = {}".format(y_test_filename))
 
-        regression = LinearRegression(x=x_train_np, y=y_train[0].to_numpy(), plot_data=False)
+            x_train = pd.read_csv(x_train_filename, header=None)
+            y_train = pd.read_csv(y_train_filename, header=None)
+            x_test = pd.read_csv(x_test_filename, header=None)
 
-        w = regression.gradient_descent(learning_rate=10e-9, epochs=10**6, plot_substeps=False)
+            x_train_std, x_test_std = LinearRegression.standardize(train_data=x_train.to_numpy(),
+                                                                   test_data=x_test.to_numpy())
 
-        y_hat = regression.make_prediction(x=x_train_np, w=w, y=regression.y, plot_prediction=False)
-        print("r2_score = {}".format(r2_score(y_true=regression.y, y_pred=y_hat)))
+            num_features = 1
+            x_train_np = LinearRegression.add_features(x=x_train_std, num_features=num_features)
+            x_test_np = LinearRegression.add_features(x=x_test_std, num_features=num_features)
 
-        y_hat_test = regression.make_prediction(x=x_test_np, w=w, plot_prediction=False)
-        pd.DataFrame(y_hat_test).to_csv(y_test_filename, encoding='utf-8', index=False, header=False)
+            regression = LinearRegression(x=x_train_np, y=y_train[0].to_numpy(), plot_data=False)
 
-        plt.show()
+            w = regression.gradient_descent(learning_rate=10e-9, epochs=10 ** 6, plot_substeps=False)
+
+            y_hat = regression.make_prediction(x=x_train_np, w=w, y=regression.y, plot_prediction=False)
+            logger.info("r2_score = {}".format(r2_score(y_true=regression.y, y_pred=y_hat)))
+
+            y_hat_test = regression.make_prediction(x=x_test_np, w=w, plot_prediction=False)
+            pd.DataFrame(y_hat_test).to_csv(y_test_filename, encoding='utf-8', index=False, header=False)
+
+            plt.show()
+
+    except Exception as e:
+        logger.error(e)
