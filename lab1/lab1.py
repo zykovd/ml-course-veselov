@@ -6,7 +6,7 @@ import pandas as pd
 import sympy
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_squared_error
 from enum import Enum, unique
 
 from utils.logger import create_logger
@@ -26,7 +26,10 @@ class LinearRegression:
     def __init__(self, x: np.ndarray, y: np.ndarray, plot_data: bool = True) -> None:
         self.x = x
         self.y = y
-        self.feature = x[:, -2]
+        if x.shape[1] != 1:
+            self.feature = x[:, -2]
+        else:
+            self.feature = x[:, 0]
 
         if plot_data:
             plt.figure(figsize=(12, 6))
@@ -50,7 +53,8 @@ class LinearRegression:
         :return:
         """
         if num_features < 1:
-            raise ValueError("'num_features' must be > 1")
+            return x
+        #     raise ValueError("'num_features' must be > 1")
 
         if len(x.shape) == 1:
             temp = np.vstack([x ** deg for deg in range(num_features, -1, -1)])
@@ -64,7 +68,8 @@ class LinearRegression:
                 return np.hstack([x, np.ones([x.shape[0], 1])])
             else:
                 logger.warning("Adding num_features more than {}!".format(num_features))
-                temp = np.hstack([x ** deg for deg in range(num_features, -1, -1)])
+                temp = np.hstack([x ** deg for deg in range(num_features, 0, -1)])
+                temp = np.hstack((temp, np.ones((temp.shape[0], 1))))
                 if add_sin:
                     temp = np.hstack((np.sin(x), temp))
                 if add_log:
@@ -84,13 +89,13 @@ class LinearRegression:
                          plot_substeps: bool = True):
 
         t0 = time.time()
-        w_all = []
+        theta_all = []
         err_all = []
         degree = self.x.shape[1] - 1
         theta = np.zeros((degree + 1))
         for progress in np.arange(0, epochs):
             if plot_substeps:
-                w_all.append(theta)
+                theta_all.append(theta)
             err = np.dot(self.x, theta) - self.y
             err_all.append(np.dot(err, err))
             x_transp_x = np.dot(self.x.T, self.x)
@@ -120,7 +125,7 @@ class LinearRegression:
 
             plt.figure()
             for i, epoch in enumerate(list_iters_for_plot):
-                y_pred = np.dot(self.x, w_all[epoch])
+                y_pred = np.dot(self.x, theta_all[epoch])
                 x_sorted, y_sorted, y_pred_sorted = (np.array(t) for t in zip(*sorted(zip(self.feature,
                                                                                           self.y, y_pred),
                                                                                       key=lambda _t: _t[0])))
@@ -219,22 +224,65 @@ if __name__ == '__main__':
             y_train = pd.read_csv(train_labels_filename, header=None)
             x_test = pd.read_csv(test_features_filename, header=None)
 
-            x_train_np, x_test_np = x_train[0].to_numpy(), x_test[0].to_numpy()
+            x_train_std, x_test_std = LinearRegression.standardize(train_data=x_train.to_numpy().reshape(-1, 1),
+                                                                   test_data=x_test.to_numpy().reshape(-1, 1))
 
-            num_features = 2
-            x_train_np = LinearRegression.add_features(x=x_train_np, num_features=num_features)
-            x_test_np = LinearRegression.add_features(x=x_test_np, num_features=num_features)
+            x_train_np_base, x_test_np_base = x_train_std, x_test_std
 
-            regression = LinearRegression(x=x_train_np, y=y_train[0].to_numpy(), plot_data=False)
+            total_num_points = x_train_np_base.shape[0]
+            logger.debug("total_num_points = {}".format(total_num_points))
+            train_percent = 90
+            train_points = total_num_points * train_percent // 100
 
-            theta = regression.gradient_descent(learning_rate=10e-6, epochs=10000, plot_substeps=True)
+            x_validation_np_base = x_train_np_base[train_points:]
+            y_validation = y_train[0].to_numpy()[train_points:]
+            x_train_np_base = x_train_np_base[:train_points]
+            y_train = y_train[0].to_numpy()[:train_points]
 
-            y_hat = regression.make_prediction(x=x_train_np, theta=theta, y=regression.y, plot_prediction=True)
-            logger.info("r2_score = {}".format(r2_score(y_true=regression.y, y_pred=y_hat)))
+            logger.info('Train points = {}'.format(y_train.shape))
+            logger.info('Validation points = {}'.format(y_validation.shape))
 
-            y_hat_test = regression.make_prediction(x=x_test_np, theta=theta, plot_prediction=False)
-            LinearRegression.plot_scatter(x_train=x_train_np, y_train=regression.y, x_test=x_test_np, y_test=y_hat_test)
-            pd.DataFrame(y_hat_test).to_csv(test_labels_filename, encoding='utf-8', index=False, header=False)
+            num_features_for_csv = 2
+
+            list_mse_train = []
+            list_mse_validation = []
+            list_features = range(0, 10)
+            for num_features in list_features:
+                x_train_np = LinearRegression.add_features(x=x_train_np_base, num_features=num_features)
+                x_test_np = LinearRegression.add_features(x=x_test_np_base, num_features=num_features)
+                x_validation_np = LinearRegression.add_features(x=x_validation_np_base, num_features=num_features)
+
+                regression = LinearRegression(x=x_train_np, y=y_train, plot_data=False)
+
+                theta = regression.gradient_descent(learning_rate=10e-6, epochs=10 ** 6,
+                                                    plot_substeps=False, plot_error=False)
+
+                y_hat = regression.make_prediction(x=x_validation_np, theta=theta, y=y_validation,
+                                                   plot_prediction=False)
+                mse = mean_squared_error(y_true=y_validation, y_pred=y_hat)
+                logger.info("Validation MSE = {}".format(mse))
+                list_mse_validation.append(mse)
+
+                y_hat = regression.make_prediction(x=x_train_np, theta=theta, y=y_train, plot_prediction=False)
+                logger.info("r2_score = {}".format(r2_score(y_true=y_train, y_pred=y_hat)))
+                mse = mean_squared_error(y_true=y_train, y_pred=y_hat)
+                logger.info("Train MSE = {}".format(mse))
+                list_mse_train.append(mse)
+
+                if num_features == num_features_for_csv:
+                    y_hat_test = regression.make_prediction(x=x_test_np, theta=theta, plot_prediction=False)
+                    LinearRegression.plot_scatter(x_train=x_train_np, y_train=regression.y,
+                                                  x_test=x_test_np, y_test=y_hat_test)
+                    pd.DataFrame(y_hat_test).to_csv(test_labels_filename, encoding='utf-8', index=False, header=False)
+
+            plt.figure(figsize=(12, 6))
+            plt.plot(list_features, list_mse_train, 'b', label='Train')
+            plt.plot(list_features, list_mse_validation, 'r', label='Validation')
+            plt.xlabel('Features')
+            plt.ylabel('MSE')
+            plt.title('Generalization ability')
+            plt.legend()
+            plt.grid()
 
             plt.show()
 
@@ -245,7 +293,7 @@ if __name__ == '__main__':
             x_train_filename = "{}/challenge1_x_train.csv".format(data_dir)
             y_train_filename = "{}/challenge1_y_train.csv".format(data_dir)
             x_test_filename = "{}/challenge1_x_test.csv".format(data_dir)
-            y_test_filename = "{}/lab1_challenge_91_10e-9_10v6_2features.csv".format(output_dir)
+            y_test_filename = "{}/lab1_challenge.csv".format(output_dir)
 
             logger.info("x_train_filename = {}".format(x_train_filename))
             logger.info("y_train_filename = {}".format(y_train_filename))
@@ -293,7 +341,7 @@ if __name__ == '__main__':
 
             regression = LinearRegression(x=x_train_np, y=y_train_np, plot_data=False)
 
-            theta = regression.gradient_descent(learning_rate=10e-10, epochs=10 ** 7, plot_substeps=False)
+            theta = regression.gradient_descent(learning_rate=10e-10, epochs=2 * 10 ** 7, plot_substeps=False)
 
             y_hat = regression.make_prediction(x=x_validation_np, theta=theta, plot_prediction=False)
             logger.info("r2_score = {}".format(r2_score(y_true=y_validation_np, y_pred=y_hat)))
