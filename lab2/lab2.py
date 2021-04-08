@@ -36,6 +36,7 @@ class Classification:
 
         if plot_correlation:
             self._plot_features_correlation()
+            self._plot_features_labels_correlation()
 
         if plot_data_2d:
             self._plot_pca_visualization(n_components=2)
@@ -141,11 +142,11 @@ class Classification:
         theta = np.zeros((degree + 1))
         for progress in np.arange(0, epochs):
             gradient = gradient_func(x=self.x, y=self.y, theta=theta)
+            err_all.append(self.cost_function(x=self.x, y=self.y, theta=theta))
             theta -= learning_rate * gradient
             if progress % 100 == 0:
-                # print("\rGradient descent progress: {:.1f}% Error: {:.5f} Epoch: {}"
-                print("\rGradient descent progress: {:.1f}% Error: {} Epoch: {}"
-                      .format(progress / epochs * 100, "todo placeholder", progress), end="")
+                print("\rGradient descent progress: {:.1f}% Error: {:.5f} Epoch: {}"
+                      .format(progress / epochs * 100, err_all[-1], progress), end="")
         tf = time.time()
         print("\r")
         logger.info('Gradient descent took {} s'.format(tf - t0))
@@ -155,9 +156,9 @@ class Classification:
             plt.figure(figsize=(12, 6))
             plt.plot(err_all)
             plt.xlabel('Iteration #')
-            plt.ylabel('RMS Error')
-            plt.title('RMS Error')
-            plt.legend(['RMS Error'])
+            plt.ylabel('Error')
+            plt.title('Error')
+            plt.legend(['Error'])
             plt.grid()
 
         return theta
@@ -217,6 +218,20 @@ class Classification:
 
         return figure_corr
 
+    def _plot_features_labels_correlation(self):
+        data = pd.DataFrame(data=self.x,
+                            columns=["Column{}".format(i) for i in range(self.x.shape[1])])
+        data["Target"] = self.y
+
+        corr = data.drop("Target", axis=1).apply(lambda x: x.corr(data.Target))
+        logger.info("Correlation between features and labels:\n{}".format(corr))
+
+        sns.set_theme(style="whitegrid")
+        figure_corr = plt.figure("Correlation with labels", figsize=(12, 12))
+        sns.barplot(corr.values, corr.index)
+
+        return figure_corr
+
     def _k_best_features(self, num_features: int = 3):
         x_new = SelectKBest(score_func=mutual_info_classif, k=num_features).fit_transform(self.x, self.y)
         # x_new = SelectKBest(score_func=f_classif, k=num_features).fit_transform(self.x, self.y)
@@ -269,8 +284,9 @@ class Classification:
         return matches / y_true.shape[0]
 
 
-def plot_generalization_ability(x_train: np.ndarray, y_train: np.ndarray, x_valid: np.ndarray, y_valid: np.ndarray,
-                                max_features: int = 10):
+def plot_generalization_ability_select(x_train: np.ndarray, y_train: np.ndarray,
+                                       x_valid: np.ndarray, y_valid: np.ndarray,
+                                       max_features: int = 10):
     """
     Returns generalization ability plot (X: number of features, Y: MSE)
     :param x_train:
@@ -282,6 +298,8 @@ def plot_generalization_ability(x_train: np.ndarray, y_train: np.ndarray, x_vali
     """
     list_accuracy_train = []
     list_accuracy_validation = []
+    list_error_train = []
+    list_error_validation = []
     list_features = range(1, max_features)
     for num_features in list_features:
         classification = Classification(x=x_train, y=y_train, plot_data_2d=False, plot_data_3d=False,
@@ -290,24 +308,95 @@ def plot_generalization_ability(x_train: np.ndarray, y_train: np.ndarray, x_vali
         theta = classification.gradient_descent(gradient_func=Classification.gradient, learning_rate=10e-5,
                                                 epochs=10 ** 5, plot_error=False)
 
-        y_hat = classification.predict(x=classification.transform(x=x_train_np_base), theta=theta)
-        accuracy = classification.accuracy(y_true=y_train, y_hat=y_hat)
+        y_hat = Classification.predict(x=classification.transform(x=x_train_np_base), theta=theta)
+        accuracy = Classification.accuracy(y_true=y_train, y_hat=y_hat)
         logger.info("accuracy = {} (train)".format(accuracy))
         list_accuracy_train.append(accuracy)
+        list_error_train.append(Classification.cost_function(x=classification.x, y=classification.y, theta=theta))
 
-        y_hat = classification.predict(x=classification.transform(x=x_valid), theta=theta)
-        accuracy = classification.accuracy(y_true=y_valid, y_hat=y_hat)
+        y_hat = Classification.predict(x=classification.transform(x=x_valid), theta=theta)
+        accuracy = Classification.accuracy(y_true=y_valid, y_hat=y_hat)
         logger.info("accuracy = {} (validation)".format(accuracy))
         list_accuracy_validation.append(accuracy)
+        list_error_validation.append(Classification.cost_function(x=classification.transform(x=x_valid),
+                                                                  y=y_valid, theta=theta))
 
-    figure_ga = plt.figure(figsize=(12, 6))
-    plt.plot(list_features, list_accuracy_train, 'b', label='Train')
-    plt.plot(list_features, list_accuracy_validation, 'r', label='Validation')
-    plt.xlabel('Features')
-    plt.ylabel('Accuracy')
-    plt.title('Generalization ability')
-    plt.legend()
-    plt.grid()
+    figure_ga, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    figure_ga.suptitle('Generalization ability')
+
+    ax1.plot(list_features, list_accuracy_train, 'b', label='Train')
+    ax1.plot(list_features, list_accuracy_validation, 'r', label='Validation')
+    ax1.set_xlabel('Features (total)')
+    ax1.set_ylabel('Accuracy')
+    ax1.legend()
+    ax1.grid()
+
+    ax2.plot(list_features, list_error_train, 'b', label='Train')
+    ax2.plot(list_features, list_error_validation, 'r', label='Validation')
+    ax2.set_xlabel('Features (total)')
+    ax2.set_ylabel('Cost')
+    ax2.legend()
+    ax2.grid()
+
+    return figure_ga
+
+
+def plot_generalization_ability(x_train: np.ndarray, y_train: np.ndarray,
+                                x_valid: np.ndarray, y_valid: np.ndarray,
+                                max_additional_features: int = 3):
+    """
+    Returns generalization ability plot (X: number of features, Y: MSE)
+    :param x_train:
+    :param y_train:
+    :param x_valid:
+    :param y_valid:
+    :param max_additional_features: Max number of features
+    :return:
+    """
+    list_accuracy_train = []
+    list_accuracy_validation = []
+    list_error_train = []
+    list_error_validation = []
+    list_features = range(1, max_additional_features)
+    for num_features in list_features:
+        classification = Classification(x=x_train, y=y_train, plot_data_2d=False, plot_data_3d=False,
+                                        plot_correlation=False, num_features=3)
+
+        classification.x = Classification.add_features(x=classification.x, num_features=num_features)
+        x_valid_ext = classification.transform(x=x_valid)
+        x_valid_ext = Classification.add_features(x=x_valid_ext, num_features=num_features)
+
+        theta = classification.gradient_descent(gradient_func=Classification.gradient, learning_rate=10e-5,
+                                                epochs=10 ** 5, plot_error=False)
+
+        y_hat = Classification.predict(x=classification.x, theta=theta)
+        accuracy = Classification.accuracy(y_true=y_train, y_hat=y_hat)
+        logger.info("accuracy = {} (train)".format(accuracy))
+        list_accuracy_train.append(accuracy)
+        list_error_train.append(Classification.cost_function(x=classification.x, y=classification.y, theta=theta))
+
+        y_hat = Classification.predict(x=x_valid_ext, theta=theta)
+        accuracy = Classification.accuracy(y_true=y_valid, y_hat=y_hat)
+        logger.info("accuracy = {} (validation)".format(accuracy))
+        list_accuracy_validation.append(accuracy)
+        list_error_validation.append(Classification.cost_function(x=x_valid_ext, y=y_valid, theta=theta))
+
+    figure_ga, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    figure_ga.suptitle('Generalization ability')
+
+    ax1.plot(list_features, list_accuracy_train, 'b', label='Train')
+    ax1.plot(list_features, list_accuracy_validation, 'r', label='Validation')
+    ax1.set_xlabel('Features (additional)')
+    ax1.set_ylabel('Accuracy')
+    ax1.legend()
+    ax1.grid()
+
+    ax2.plot(list_features, list_error_train, 'b', label='Train')
+    ax2.plot(list_features, list_error_validation, 'r', label='Validation')
+    ax2.set_xlabel('Features (additional)')
+    ax2.set_ylabel('Cost')
+    ax2.legend()
+    ax2.grid()
 
     return figure_ga
 
@@ -319,13 +408,19 @@ if __name__ == '__main__':
         mode = ModeEnum.BASIC
         logger.info("Mode: {}".format(mode.value))
 
+        dump_to_csv = False
+        logger.info("dump_to_csv: {}".format(dump_to_csv))
+
+        calc_ga = False
+        logger.info("calc_ga: {}".format(calc_ga))
+
         if mode == ModeEnum.BASIC:
             data_dir = "task2"
             output_dir = "output"
             variant = 3
 
             test_features_filename = "{}/test_features_{:04d}.csv".format(data_dir, variant)
-            test_labels_filename = "{}/lab1.csv".format(output_dir)
+            test_labels_filename = "{}/lab2.csv".format(output_dir)
             train_features_filename = "{}/train_features_{:04d}.csv".format(data_dir, variant)
             train_labels_filename = "{}/train_labels_{:04d}.csv".format(data_dir, variant)
 
@@ -346,7 +441,7 @@ if __name__ == '__main__':
 
             total_num_points = x_train_np_base.shape[0]
             logger.debug("total_num_points = {}".format(total_num_points))
-            train_percent = 90
+            train_percent = 80
             train_points = total_num_points * train_percent // 100
 
             x_validation_np_base = x_train_np_base[train_points:]
@@ -361,7 +456,7 @@ if __name__ == '__main__':
                                             plot_correlation=True)
 
             theta = classification.gradient_descent(gradient_func=Classification.gradient, learning_rate=10e-5,
-                                                    epochs=10 ** 5, plot_error=False)
+                                                    epochs=10 ** 6, plot_error=True)
 
             y_hat = classification.predict(x=classification.transform(x=x_train_np_base), theta=theta)
             logger.info("accuracy = {} (train)".format(classification.accuracy(y_true=y_train, y_hat=y_hat)))
@@ -369,9 +464,21 @@ if __name__ == '__main__':
             y_hat = classification.predict(x=classification.transform(x=x_validation_np_base), theta=theta)
             logger.info("accuracy = {} (validation)".format(classification.accuracy(y_true=y_validation, y_hat=y_hat)))
 
-            plot_generalization_ability(x_train=x_train_np_base, y_train=y_train,
-                                        x_valid=x_validation_np_base, y_valid=y_validation,
-                                        max_features=x_train_np_base.shape[1])
+            if dump_to_csv:
+                y_hat_test = classification.predict(x=classification.transform(x=x_test_np_base), theta=theta)
+                np.savetxt(test_labels_filename, y_hat_test.astype(np.float32), delimiter=",")
+
+            if calc_ga:
+                figure_ga_select = plot_generalization_ability_select(x_train=x_train_np_base, y_train=y_train,
+                                                                      x_valid=x_validation_np_base,
+                                                                      y_valid=y_validation,
+                                                                      max_features=x_train_np_base.shape[1])
+                figure_ga_select.savefig("{}/ga_select.png".format(output_dir))
+
+                figure_ga = plot_generalization_ability(x_train=x_train_np_base, y_train=y_train,
+                                                        x_valid=x_validation_np_base, y_valid=y_validation,
+                                                        max_additional_features=4)
+                figure_ga.savefig("{}/ga.png".format(output_dir))
 
             plt.show()
 
