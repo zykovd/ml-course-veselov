@@ -7,6 +7,7 @@ import struct
 import subprocess
 import warnings
 from datetime import datetime
+from typing import Union
 
 from colorlog import ColoredFormatter
 
@@ -94,7 +95,8 @@ num_symbols = get_terminal_size()[0] - 1
 
 
 def create_logger(name: str = None, logging_mode: str = 'INFO', file_logging_mode: str = 'DEBUG',
-                  log_to_file: bool = False, log_location: str = None, log_name: str = 'log') -> logging.Logger:
+                  log_to_file: bool = False, log_location: Union[str, pathlib.Path] = None,
+                  log_name: str = 'log') -> logging.Logger:
     console_formatter = ColoredFormatter(
         '%(blue)s%(asctime)s%(reset)s - %(name)s - %(log_color)s%(levelname)s%(reset)s - %(message)s')
     file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
