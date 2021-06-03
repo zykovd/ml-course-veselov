@@ -30,12 +30,6 @@ class TextClassification:
         self.class_vocab = dict()
         self.loglikelihood = dict()
 
-        # vectorizer = CountVectorizer()
-        # x_vectorized = vectorizer.fit_transform(x)
-        #
-        # # logger.info("X = {}".format(x_vectorized.toarray()))
-        # logger.info("Features: {}".format(vectorizer.get_feature_names()))
-
     def count_cls(self, cls):
         cnt = 0
         for idx, _docs in enumerate(self.docs):
@@ -49,16 +43,16 @@ class TextClassification:
             vocab.extend(self.clean_doc(doc))
         return np.unique(vocab)
 
-    def build_class_vocab(self, _cls):
+    def build_class_vocab(self, cls):
         curr_word_list = []
         for idx, doc in enumerate(self.docs):
-            if self.classes[idx] == _cls:
+            if self.classes[idx] == cls:
                 curr_word_list.extend(self.clean_doc(doc))
 
-        if _cls not in self.class_vocab:
-            self.class_vocab[_cls] = curr_word_list
+        if cls not in self.class_vocab:
+            self.class_vocab[cls] = curr_word_list
         else:
-            self.class_vocab[_cls].append(curr_word_list)
+            self.class_vocab[cls].append(curr_word_list)
 
     @staticmethod
     def clean_doc(doc):
@@ -90,25 +84,20 @@ class TextClassification:
     def predict(self, test_docs):
         output = []
 
-        logprior = self.logprior
-        vocab = self.vocab
-        loglikelihood = self.loglikelihood
-        classes = self.classes
-
         for doc in test_docs:
-            uniq_cls = np.unique(classes)
+            uniq_cls = np.unique(self.classes)
             dict_sum = dict()
 
-            for _cls in uniq_cls:
-                dict_sum[_cls] = logprior[_cls]
+            for cls in uniq_cls:
+                dict_sum[cls] = self.logprior[cls]
 
                 for word in self.clean_doc(doc):
-                    if word in vocab:
+                    if word in self.vocab:
                         try:
-                            dict_sum[_cls] += loglikelihood[word, _cls]
+                            dict_sum[cls] += self.loglikelihood[word, cls]
                         except Exception:
                             logger.error(traceback.format_exc())
-                            logger.error(dict_sum, _cls)
+                            logger.error(dict_sum, cls)
 
             result = np.argmax(list(dict_sum.values()))
             output.append(uniq_cls[result])
@@ -148,9 +137,9 @@ if __name__ == '__main__':
             logger.info("train_features_filename = {}".format(train_features_filename))
             logger.info("train_labels_filename = {}".format(train_labels_filename))
 
-            with open(train_features_filename) as f:
+            with open(train_features_filename, encoding="utf8") as f:
                 x_train = [line.rstrip() for line in f]
-            with open(test_features_filename) as f:
+            with open(test_features_filename, encoding="utf8") as f:
                 x_test = [line.rstrip() for line in f]
             with open(train_labels_filename) as f:
                 y_train = [line.rstrip() for line in f]
